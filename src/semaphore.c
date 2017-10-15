@@ -18,19 +18,21 @@ uint32_t schrx_sem_wake(SchrX_Semaphore *_sem, uint32_t _count)
     
     if(_count) /* wake the thread queue */
     {
+        while(_count-- && v1.b_it -> prev )
+            v1.b_it = v1.b_it -> prev;
+        if(v1.b_it -> prev)
+            v1.b_it -> prev -> next = 0;
+        else
+            _sem -> waits.next = 0;
+
+        // Wake
         do
         {
             v1.it = S_LIST_TO_DATA(v1.b_it, schrx_sem_wait_token, node);
             SchrX_UnblockThread(v1.it -> thread);
-            v1.b_it = v1.it -> node.prev;
-            if( !v1.b_it )
-            {
-                _sem -> waits.next = 0;
-                break;
-            }
-            else
-                v1.b_it -> next = 0;
-        }while(--_count);
+            v1.it -> flags &= ~SEM_TOKEN_SPIN_BIT;
+            v1.b_it = v1.it -> node.next;
+        }while(v1.b_it);
     }
     
     return _count;
@@ -154,6 +156,7 @@ SchrXStatus SchrX_SemaphoreWait(SchrX_Semaphore *_sem)
     if( (v1.old ^ v1.new) & SCHRX_SEM_WAIT_LIST_LOCK ) /* waiting list lock by me .*/
     {
         /* join the list */
+        v1.token.flags = SEM_TOKEN_SPIN_BIT; // Set spin
         v1.token.node.prev = 0;
         v1.token.node.next = (bi_list_node*)_sem -> waits.next;
         _sem -> waits.next = (for_list_node*)&v1.token.node;
@@ -161,6 +164,8 @@ SchrXStatus SchrX_SemaphoreWait(SchrX_Semaphore *_sem)
         schrx_sem_wake_and_unlock(_sem);    /* unlock waiting list */
         schrx_schedule_resume(v1.token.thread -> scheduler);
         SchrX_BlockThread(v1.token.thread);  /* sleep */
+        while(v1.token.flags & SEM_TOKEN_SPIN_BIT) // Spin until waken
+            /* Dummy instruction here */;
     }
     else
         schrx_schedule_resume(v1.token.thread -> scheduler);
