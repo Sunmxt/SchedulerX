@@ -224,11 +224,19 @@ void schrx_schedule_routine(void *_scheduler, SchrX_IRQContext *_irq_context)
 
     schrx_scheduler_modify(_scheduler);
 
-    target = schrx_pop_front_thread(schr);
-    if(schr -> exec == target)
-        return;
-
     ctx_cur = ctx_target = 0;
+    if(schr -> exec && schr -> exec -> state & SCHRX_TERMINATED_MASK)
+    {
+        schr -> exec = 0;
+        target = schrx_pop_front_thread(schr);
+    }
+    else
+    {
+        target = schrx_pop_front_thread(schr);
+        if(target == schr -> exec)
+            return;
+    }
+
     if(target)
     {
         target -> state |= SCHRX_RUNNING_MASK;
@@ -370,7 +378,7 @@ SchrXStatus schrx_core_unblock_thread(SchrX_Thread *_thread, uint32_t _mask, uin
 
 SchrXStatus schrx_core_block_thread(SchrX_Thread *_thread, uint32_t _mask, uint32_t _pos)
 {
-    uint32_t old, chg, new;
+    uint32_t old, chg, _new;
 
     if( !_thread -> scheduler )
         return SCHRX_INVAILED_PARAMETERS;
@@ -378,15 +386,15 @@ SchrXStatus schrx_core_block_thread(SchrX_Thread *_thread, uint32_t _mask, uint3
 
     for(old = _thread -> active_count ;; old = chg)
     {
-        new = ((old - (0x1 << _pos)) & _mask) | (old & (~_mask));
+        _new = ((old - (0x1 << _pos)) & _mask) | (old & (~_mask));
 
-        chg = schrx_cas_32((uint32_t*)&_thread -> active_count, old, new);
+        chg = schrx_cas_32((uint32_t*)&_thread -> active_count, old, _new);
         if( chg == old )
             break;
     }
 
 
-    if( (new & SCHRX_PASSIVE_FLAG) && !(old & SCHRX_PASSIVE_FLAG) )
+    if( (_new & SCHRX_PASSIVE_FLAG) && !(old & SCHRX_PASSIVE_FLAG) )
     {
         schrx_thread_active_judge(_thread);
         if( _thread -> scheduler == schrx_get_running_scheduler() 
@@ -448,11 +456,10 @@ SchrXStatus SchrX_TerminateThread(SchedulerX *_scheduler, SchrX_Thread *_thread,
 
 
     _thread -> exit_code = _exit_code;
-    _thread -> state = SCHRX_TERMINATED_MASK;
+    _thread -> state |= SCHRX_TERMINATED_MASK;
     if(_scheduler -> exec == _thread) //the thread is runing.
     {
         // kill the thread
-        _scheduler -> exec = 0;
         schrx_schedule_resume(_scheduler);
         if( _scheduler == schrx_get_running_scheduler() ) // scheduler is runing
         {
