@@ -1,4 +1,4 @@
-SCHRX_IDLE_STACK_SIZE   EQU     0x20
+SCHRX_IDLE_STACK_SIZE   EQU     400
     EXPORT  schrx_switch                    [WEAK]
     EXPORT  SchrX_UserSysTickHandler        [WEAK]
     EXPORT  schrx_schedule_routine          [WEAK]
@@ -6,6 +6,7 @@ SCHRX_IDLE_STACK_SIZE   EQU     0x20
     EXPORT  schrx_schedule_resume           [WEAK]
     EXPORT  schrx_scheduler_attach          [WEAK]
 	EXPORT	schrx_systick_handler           [WEAK]
+    
     EXPORT  schrx_pendsv_handler
     EXPORT  schrx_systick_handler_origin
     EXPORT  schrx_exclusive_add_16
@@ -19,11 +20,11 @@ SCHRX_IDLE_STACK_SIZE   EQU     0x20
     EXPORT  schrx_irq_critical_enter
     EXPORT  schrx_irq_critical_exit
     
-    EXPORT  schrx_schr_instance
-    EXPORT  schrx_idle_stack
+    EXPORT  schrx_schr_instance             [WEAK]
+    EXPORT  schrx_idle_stack        
 
     AREA    SCHRX_RUNTIME, DATA, READWRITE
-schrx_schr_instance             DCD     0
+schrx_schr_instance
 schrx_systick_handler_origin    DCD     0
                                 SPACE   SCHRX_IDLE_STACK_SIZE
 schrx_idle_stack_begin
@@ -42,6 +43,7 @@ schrx_schedule_suspend
 schrx_schedule_resume
 schrx_scheduler_attach
 schrx_systick_handler
+
 
 schrx_do_idle   PROC
         B       .
@@ -151,14 +153,73 @@ __schrx_es8_end
         BX      LR
     ENDP
 
+
 ;
-;   PendSV Handler
+;   Scheduler routine entry
 ;
-;   void schrx_pendsv_handler(void);
-;
+
+    ;
+    ;   For processor with VFP
+    ;
+        IF {TARGET_FPU_VFP}
+            EXPORT  schrx_schedule_invoke           [WEAK]
+            EXPORT  schrx_invoke_fpu
+            EXPORT  schrx_invoke_no_fpu
+                
+schrx_schedule_invoke                               ; dummy tag
+
+        ;
+        ;   save context with FP Expension
+        ;
+schrx_invoke_fpu        PROC
+                VPUSH   {S16-S31}                       ; Save FPU Registers
+                MRS     R1, PSP                         ; Read user stack
+                PUSH    {R1, R4-R11}
+                MOV     R2, SP
+                PUSH    {R1-R2}                         ; irq context structure
+                
+                MOV     R1, SP                          ; call shedule procedure
+                BL      schrx_schedule_routine
+                
+                POP     {R0-R2}
+                MSR     PSP, R2
+                
+                POP     {R4-R11}
+                VPOP    {S16-S31}
+
+                POP     {PC}
+            ENDP
+            
+        ENDIF
+
+    ;
+    ;   Save context with no FP Expansion
+    ;
+schrx_invoke_no_fpu     PROC
+
+        MRS     R1, PSP                         ; Read user stack
+        PUSH    {R1, R4-R11}
+        MOV     R2, SP
+        PUSH    {R1-R2}                         ; irq context
+        
+        MOV     R1, SP                          ; call schedule procedure
+        BL      schrx_schedule_routine
+        
+        POP     {R0-R2}
+        MSR     PSP, R2
+        
+        POP     {R4-R11}
+
+        POP     {PC}
+    ENDP
+
+    ;
+    ;   PendSV Handler
+    ;
+    ;   void schrx_pendsv_handler(void);
+    ;
 schrx_pendsv_handler    PROC
 IRQ_EXC_STACK_MASK      EQU     0x4
-IRQ_STORE_REGS_SIZE     EQU     32
 
         PUSH    {LR}
         LDR     R0, =schrx_schr_instance
@@ -168,23 +229,22 @@ IRQ_STORE_REGS_SIZE     EQU     32
         MOV     R1, LR
         AND     R1, #IRQ_EXC_STACK_MASK         ; Check stack type
         CBZ     R1, __pendsv_ret                ; in irq routine, do not switch
-__get_usp
-        MRS     R1, PSP                         ; Read user stack
-__invoke_schedule       
-        PUSH    {R1, R4-R11}
-        MOV     R2, SP
-        PUSH    {R1-R2}                         ; irq context
-        MOV     R1, SP                          ; call schedule procedure
-        BL      schrx_schedule_routine
-        POP     {R0-R2}
-        MSR     PSP, R2
+
+        IF {TARGET_FPU_VFP}
+            LDR     R1, =schrx_schedule_invoke
+            LDR     R1, [R1]
+            BX      R1
+        ELSE
+            B       schrx_invoke_no_fpu
+        ENDIF
+
 __pendsv_ret
-        POP     {R4-R11}
         POP     {PC}
     ENDP
 
+
 ;
-;   entry procedure
+;   launch procedure
 ;
 ;   void schrx_core_launch(struct SchedulerX *_scheduler);
 ;
@@ -256,9 +316,6 @@ schrx_irq_critical_exit     PROC
         CPSIE   I
         BX      LR
     ENDP
-
-
-
 
 ;
 ;

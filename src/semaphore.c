@@ -152,7 +152,6 @@ SchrXStatus SchrX_SemaphoreWait(SchrX_Semaphore *_sem)
         /* If resource state is changed, CAS will failed. Then retry. */
     }
 
-    v1.token.thread = SchrX_GetCurrentThread();
     if( (v1.old ^ v1.new) & SCHRX_SEM_WAIT_LIST_LOCK ) /* waiting list lock by me .*/
     {
         /* join the list */
@@ -162,13 +161,18 @@ SchrXStatus SchrX_SemaphoreWait(SchrX_Semaphore *_sem)
         _sem -> waits.next = (for_list_node*)&v1.token.node;
 
         schrx_sem_wake_and_unlock(_sem);    /* unlock waiting list */
+        
+        v1.token.thread = SchrX_GetCurrentThread();
         schrx_schedule_resume(v1.token.thread -> scheduler);
         SchrX_BlockThread(v1.token.thread);  /* sleep */
         while(v1.token.flags & SEM_TOKEN_SPIN_BIT) // Spin until waken
             /* Dummy instruction here */;
     }
     else
+    {
+        v1.token.thread = SchrX_GetCurrentThread();
         schrx_schedule_resume(v1.token.thread -> scheduler);
+    }
 
     return SCHRX_OK;
 }

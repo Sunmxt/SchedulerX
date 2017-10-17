@@ -5,25 +5,48 @@
     Target platform 
 */
 
-/* #define SCHRX_ARM */                 /* ARM */
-    /* #define SCHRX_ARM_M3 */          /* Cortex-M3 */
+/* If your device can be found in the following macro list, please directly use it. */
     /* #define SCHRX_STM32F10X */       /* STMicroelectronics STM32F10x Series */
+    /* #define SCHRX_STM32F4XX */       /* STMicroelectronics STM32F4xx Series */
+
+/* If your device cannot be found in the macro list above, please use following macro */
+    /* #define SCHRX_ARM_M3 */          /* Cortex-M3 */
+    /* #define SCHRX_ARM_M4 */          /* Cortex-M4 */
 
 
-#ifdef SCHRX_ARM
+
+#ifdef SCHRX_STM32F10X
+    #include "stm32f10x.h"
+
+    #define SCHRX_ARM
+    #define SCHRX_ARM_M3
+#elif defined(SCHRX_STM32F4XX)
+    #include "stm32f4xx.h"
+
+    #define SCHRX_ARM
+    #define SCHRX_ARM_M4
+#else
+    #if defined(SCHRX_ARM_M3) || defined(SCHRX_ARM_M4)
+        #define SCHRX_ARM
+    #endif
+#endif
+
+
+#ifndef SCHRX_ARM
+    #error "SchedulerX: Unknown processor."
+#else
     
-    #ifdef SCHRX_ARM_M3
+    #if defined(SCHRX_ARM_M3)
         #include "core_cm3.h"
-    #elif SCHRX_STM32F10X
-        #include "stm32f10x.h"
+    #elif defined(SCHRX_ARM_M4)
+        #include "core_cm4.h"
     #else
         #error "SchedulerX : Unknown arm processor."
     #endif
 
     #include "cortex.h"
-#else
-    #error "SchedulerX : Hardware platform is unspecified or unsupported."
 #endif
+
 
 void        schrx_context_switch_irq(SchrX_Context *_save, SchrX_Context *_new, SchrX_IRQContext *_irq_context);
 void        schrx_switch(void);

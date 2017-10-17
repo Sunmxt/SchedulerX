@@ -195,15 +195,18 @@ void schrx_scheduler_modify(SchedulerX *_scheduler)
                     thread -> wait_node.prev -> next = thread -> wait_node.next;
                     thread -> wait_node.prev = 0;
                 }
+                schrx_push_back_thread(_scheduler, thread);
             }
             else if( !(thread -> state & SCHRX_BLOCKED_MASK) 
                 && (thread -> active_count & SCHRX_PASSIVE_FLAG) )
             {
                 if( !(thread -> state & SCHRX_RUNNING_MASK) )
+                {
                     schrx_extract_thread(_scheduler, thread);
+                    schrx_push_back_thread(_scheduler, thread);
+                }
                 thread -> state |= SCHRX_BLOCKED_MASK;
-            }  
-            schrx_push_back_thread(_scheduler, thread);
+            }
         }
         op_node = op_next;
     }
@@ -231,12 +234,14 @@ void schrx_schedule_routine(void *_scheduler, SchrX_IRQContext *_irq_context)
         target = schrx_pop_front_thread(schr);
     }
     else
-    {
+    {    
         target = schrx_pop_front_thread(schr);
+        if(target && target -> state & SCHRX_BLOCKED_MASK)
+            target = 0;
         if(target == schr -> exec)
-            return;
+           return;
     }
-
+    
     if(target)
     {
         target -> state |= SCHRX_RUNNING_MASK;

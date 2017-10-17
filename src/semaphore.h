@@ -7,6 +7,8 @@ typedef struct _SchedulerX_Semaphore_Wait_Token
 {
     bi_list_node node;
     SchrX_Thread *thread;
+    uint8_t flags;
+    #define SEM_TOKEN_SPIN_BIT  0x01
 }schrx_sem_wait_token;
 
 typedef struct _SchedulerX_Semaphore

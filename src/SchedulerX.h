@@ -47,6 +47,7 @@ typedef struct _SchedulerX_Thread
     #define SCHRX_RUNNING_MASK          0x01
     #define SCHRX_BLOCKED_MASK          0x02
     #define SCHRX_TERMINATED_MASK       0x04
+    #define SCHRX_TERMINATING_MASK      0x08
 
     volatile uint32_t active_count;
     #define SCHRX_UNBLOCK_COUNT_POS     16

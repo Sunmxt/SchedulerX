@@ -1,9 +1,17 @@
 #ifndef SCHEDULERX_ARM_HEADER
 #define SCHEDULERX_ARM_HEADER
 
+#if (__FPU_PRESENT == 1) && (__FPU_USED == 1)
+    #define SCHRX_CORTEX_FPU_ENABLE
+#endif
 
 typedef struct _SchedulerX_ARM_Context
 {
+    #ifdef SCHRX_CORTEX_FPU_ENABLE
+        uint32_t Reserved[2];
+        uint32_t FPSCR;
+        uint32_t S[32];
+    #endif
     uint32_t R[13];
     uint32_t SP;
     uint32_t LR;
@@ -11,7 +19,7 @@ typedef struct _SchedulerX_ARM_Context
     uint32_t xPSR;
 }SchrX_ARMContext;
 
-typedef struct SchedulerX_Cortex_M3_IRQ_Store_Registers 
+typedef struct SchedulerX_Cortex_IRQ_Store_Registers 
 {
     uint32_t R0;
     uint32_t R1;
@@ -21,7 +29,19 @@ typedef struct SchedulerX_Cortex_M3_IRQ_Store_Registers
     uint32_t LR;
     uint32_t PC;
     uint32_t xPSR;
+    #ifdef SCHRX_CORTEX_FPU_ENABLE
+        uint32_t S[16];
+        uint32_t FPSCR;
+        uint32_t Reserved[2];
+    #else
+        uint32_t Reserved[1];
+    #endif
 }SchrX_IRQStoredRegs;
+#define CORTEX_IRQ_STORE_REGS_SIZE sizeof(SchrX_IRQStoredRegs)
+#ifdef SCHRX_CORTEX_FPU_ENABLE
+    #define CORTEX_IRQ_STORE_REGS_SIZE_NO_FPU \
+        (sizeof(SchrX_IRQStoredRegs) - sizeof(uint32_t)*16 - 4 - 8)
+#endif
 
 typedef struct SchedulerX_Extra_IRQ_Store_Register
 {
@@ -34,6 +54,9 @@ typedef struct SchedulerX_Extra_IRQ_Store_Register
     uint32_t R9;
     uint32_t R10;
     uint32_t R11;
+    #ifdef SCHRX_CORTEX_FPU_ENABLE
+        uint32_t S_16[16]; //FPU Registers S16-S30
+    #endif
     uint32_t irq_exc_ret;
 }SchrX_IRQStoredRegsExtra;
 
