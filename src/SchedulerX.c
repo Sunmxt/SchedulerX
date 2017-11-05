@@ -20,7 +20,8 @@ SchrX_Thread* schrx_pop_front_thread(SchedulerX *_scheduler)
     SchrX_Thread *thread;
     for_list_node *head, *tail;
  
-    head = tail = 0;
+    head = 0;
+    tail = 0;
     if( _scheduler -> loop.real_time.head.next )
     {
         head = &_scheduler -> loop.real_time.head;
@@ -179,7 +180,7 @@ void schrx_scheduler_modify(SchedulerX *_scheduler)
         }
         else if(op & SCHRX_OP_ACTIVE_JUDGE)
         {
-            if( thread -> state & SCHRX_BLOCKED_MASK 
+            if( (thread -> state & SCHRX_BLOCKED_MASK)
                 && !(thread -> active_count & SCHRX_PASSIVE_FLAG) )
             {
                 thread -> state &= ~SCHRX_BLOCKED_MASK;
@@ -225,10 +226,10 @@ void schrx_schedule_routine(void *_scheduler, SchrX_IRQContext *_irq_context)
         return;
     }
 
-    schrx_scheduler_modify(_scheduler);
+    schrx_scheduler_modify(schr);
 
     ctx_cur = ctx_target = 0;
-    if(schr -> exec && schr -> exec -> state & SCHRX_TERMINATED_MASK)
+    if(schr -> exec && (schr -> exec -> state & SCHRX_TERMINATED_MASK))
     {
         schr -> exec = 0;
         target = schrx_pop_front_thread(schr);
@@ -236,7 +237,7 @@ void schrx_schedule_routine(void *_scheduler, SchrX_IRQContext *_irq_context)
     else
     {    
         target = schrx_pop_front_thread(schr);
-        if(target && target -> state & SCHRX_BLOCKED_MASK)
+        if(target && (target -> state & SCHRX_BLOCKED_MASK))
             target = 0;
         if(target == schr -> exec)
            return;
