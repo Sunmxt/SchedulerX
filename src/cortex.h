@@ -8,6 +8,9 @@
 typedef struct _SchedulerX_ARM_Context
 {
     #ifdef SCHRX_CORTEX_FPU_ENABLE
+        uint8_t flags;
+        #define ARM_CTX_FP_ACTIVE       (0x01u)
+
         uint32_t Reserved[2];
         uint32_t FPSCR;
         uint32_t S[32];
@@ -30,13 +33,20 @@ typedef struct SchedulerX_Cortex_IRQ_Store_Registers
     uint32_t PC;
     uint32_t xPSR;
     #ifdef SCHRX_CORTEX_FPU_ENABLE
-        uint32_t S[16];
-        uint32_t FPSCR;
-        uint32_t Reserved[2];
+        union
+        {
+            struct {
+                uint32_t S[16];
+                uint32_t FPSCR;
+                uint32_t Reserved[2];
+            } ext;
+            uint32_t Reserved[1];
+        };
     #else
         uint32_t Reserved[1];
     #endif
 }SchrX_IRQStoredRegs;
+
 #define CORTEX_IRQ_STORE_REGS_SIZE sizeof(SchrX_IRQStoredRegs)
 #ifdef SCHRX_CORTEX_FPU_ENABLE
     #define CORTEX_IRQ_STORE_REGS_SIZE_NO_FPU \
@@ -45,6 +55,7 @@ typedef struct SchedulerX_Cortex_IRQ_Store_Registers
 
 typedef struct SchedulerX_Extra_IRQ_Store_Register
 {
+    uint32_t irq_exc_ret;
     uint32_t SP;
     uint32_t R4;
     uint32_t R5;
@@ -57,7 +68,6 @@ typedef struct SchedulerX_Extra_IRQ_Store_Register
     #ifdef SCHRX_CORTEX_FPU_ENABLE
         uint32_t S_16[16]; //FPU Registers S16-S30
     #endif
-    uint32_t irq_exc_ret;
 }SchrX_IRQStoredRegsExtra;
 
 typedef struct SchedulerX_IRQ_Context
@@ -76,6 +86,9 @@ typedef SchrX_ARMContext SchrX_Context;
 void schrx_do_idle(void);
 void schrx_systick_handler(void);
 void schrx_pendsv_handler(void);
+
+/* ------------------------------- */
+uint64_t schrx_cortex_calc_tick_count_1s(void);
 
 
 #endif

@@ -1,4 +1,5 @@
-#include "semaphore.h"
+#include "SchedulerX.h"
+// #include "semaphore.h"
 
 uint32_t schrx_sem_wake(SchrX_Semaphore *_sem, uint32_t _count)
 {
@@ -63,9 +64,12 @@ void schrx_sem_wake_and_unlock(SchrX_Semaphore *_sem)
     }
 }
 
-SchrXStatus SchrX_SemaphoreCreate(SchrX_Semaphore *_sem)
+SchrXStatus SchrX_SemaphoreCreate(SchrX_Semaphore *_sem, uint32_t _resource)
 {
-    _sem -> resource = 0;
+    if(!_sem)
+        return SCHRX_INVAILED_PARAMETERS;
+
+    _sem -> resource = _resource << SCHRX_SEM_RESOURCE_POS;
     _sem -> waits.next = 0;
 
     return SCHRX_OK;
@@ -73,9 +77,24 @@ SchrXStatus SchrX_SemaphoreCreate(SchrX_Semaphore *_sem)
 
 SchrXStatus SchrX_SemaphoreDestroy(SchrX_Semaphore *_sem)
 {
-    _sem -> resource = 0;
-    schrx_sem_wake(_sem, (uint32_t)(-1));
+    SchedulerX *schr;
+    uint32_t old;
+
+    if(!_sem)
+        return SCHRX_INVAILED_PARAMETERS;
+
+    schr = schrx_get_running_scheduler();
+    if(!schr || !schrx_is_user_context())
+        return SCHRX_INVAILED_CONTEXT;
+
+    schrx_schedule_suspend(schr);
+
+    old = schrx_exclusive_and32(&_sem -> resource, SCHRX_SEM_DESTROYED);
+    if(_sem -> waits.next)
+        schrx_sem_wake(_sem, -1);
     
+    schrx_schedule_resume(schr);
+
     return SCHRX_OK;
 }
 
@@ -95,6 +114,9 @@ SchrXStatus SchrX_SemaphorePost(SchrX_Semaphore *_sem, uint32_t _resource)
 
     for(v1.old = _sem -> resource ;; v1.old = v1.chg)
     {
+        if(v1.old & SCHRX_SEM_DESTROYED) // semaphore destroyed.
+            break;
+
         /* add my resource */
         v1.new = (v1.old & SCHRX_SEM_RESOURCE) + (_resource << SCHRX_SEM_RESOURCE_POS);
         if(_sem -> waits.next)
@@ -117,6 +139,8 @@ SchrXStatus SchrX_SemaphorePost(SchrX_Semaphore *_sem, uint32_t _resource)
 
 SchrXStatus SchrX_SemaphoreWait(SchrX_Semaphore *_sem)
 {
+    SchrXStatus ret;
+
     union
     {
         schrx_sem_wait_token token;
@@ -126,6 +150,8 @@ SchrXStatus SchrX_SemaphoreWait(SchrX_Semaphore *_sem)
     v1.token.thread = SchrX_GetCurrentThread();
     if(!v1.token.thread)
         return SCHRX_INVAILED_CONTEXT;
+
+    ret = SCHRX_OK;
 
     schrx_schedule_suspend(v1.token.thread -> scheduler);
     /*
@@ -139,6 +165,12 @@ SchrXStatus SchrX_SemaphoreWait(SchrX_Semaphore *_sem)
 
     for(v1.old = _sem -> resource ;; v1.old = v1.chg)
     {
+        if(v1.old & SCHRX_SEM_DESTROYED) // semaphore destroyed.
+        {
+            ret = SCHRX_INVAILED_PARAMETERS;
+            break;
+        }
+
         if(v1.old & SCHRX_SEM_RESOURCE) 
         /* If resources exist, try to acquire. */
             v1.new = v1.old - SCHRX_SEM_RESOURCE_UNIT;
@@ -174,5 +206,5 @@ SchrXStatus SchrX_SemaphoreWait(SchrX_Semaphore *_sem)
         schrx_schedule_resume(v1.token.thread -> scheduler);
     }
 
-    return SCHRX_OK;
+    return ret;
 }

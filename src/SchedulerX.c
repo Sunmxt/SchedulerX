@@ -80,22 +80,22 @@ void schrx_push_back_thread(SchedulerX *_scheduler, SchrX_Thread *_thread)
     {
         switch( _thread -> priority )
         {
-        case SCHRX_PRIORITY_REALTIME:
+        case ___SCHRX_PIROR_REALRIME:
             head  = &_scheduler -> loop.real_time.head;
             tail  = &_scheduler -> loop.real_time.tail;
             break;
 
-        case SCHRX_PRIORITY_HIGH:
+        case ___SCHRX_PIROR_HIGH:
             head = &_scheduler -> loop.high.head;
             tail = &_scheduler -> loop.high.tail;
             break;
 
-        case SCHRX_PRIORITY_MEDIUM:
+        case ___SCHRX_PIROR_MEDIUM:
             head = &_scheduler -> loop.medium.head;
             tail = &_scheduler -> loop.medium.tail;
             break;
 
-        case SCHRX_PRIORITY_LOW:
+        case ___SCHRX_PIROR_LOW:
             head = &_scheduler -> loop.low.head;
             tail = &_scheduler -> loop.low.tail;
             break;
@@ -118,22 +118,22 @@ SchrXStatus schrx_extract_thread(SchedulerX *_scheduler, SchrX_Thread *_thread)
     head = tail = 0;
     switch( _thread -> priority )
     {
-    case SCHRX_PRIORITY_REALTIME:
+    case ___SCHRX_PIROR_REALRIME:
         head = &_scheduler -> loop.real_time.head;
         tail = &_scheduler -> loop.real_time.tail;
         break;
 
-    case SCHRX_PRIORITY_HIGH:
+    case ___SCHRX_PIROR_HIGH:
         head = &_scheduler -> loop.high.head;
         tail = &_scheduler -> loop.high.tail;
         break;
 
-    case SCHRX_PRIORITY_MEDIUM:
+    case ___SCHRX_PIROR_MEDIUM:
         head = &_scheduler -> loop.medium.head;
         tail = &_scheduler -> loop.medium.tail;
         break;
 
-    case SCHRX_PRIORITY_LOW:
+    case ___SCHRX_PIROR_LOW:
         head = &_scheduler -> loop.low.head;
         tail = &_scheduler -> loop.low.tail;
         break;
@@ -242,7 +242,7 @@ void schrx_schedule_routine(void *_scheduler, SchrX_IRQContext *_irq_context)
         if(target == schr -> exec)
            return;
     }
-    
+
     if(target)
     {
         target -> state |= SCHRX_RUNNING_MASK;
@@ -283,6 +283,14 @@ SchrXStatus SchrX_Create(SchedulerX *_scheduler)
     _scheduler -> op_list.next = 0;
     _scheduler -> exec = 0;
     _scheduler -> flags = 0;
+
+    #ifdef SCHEDULERX_TIME
+        SchrX_CreateTimeTriggerManager(&_scheduler -> timer.manager);
+        SchrX_SemaphoreCreate(&_scheduler -> timer.lock, 0);
+        SchrX_SemaphoreCreate(&_scheduler -> timer.sem_block, 0);
+        _scheduler -> timer.lock.resource = SCHRX_SEM_RESOURCE_UNIT;
+        _scheduler -> timer.triggered = 0;
+    #endif
     
     return SCHRX_OK;
 }
@@ -316,7 +324,7 @@ SchrXStatus SchrX_CreateThread(SchedulerX *_scheduler ,SchrX_Thread *_thread, Sc
 
     _thread -> op = SCHRX_OP_PREPARE;
     _thread -> state = 0;
-    if( _control & SCHRX_CREATE_SUSPEND )
+    if( _control & SCHRX_SUSPEND )
         _thread -> active_count = SCHRX_RESUME_COUNT_MASK;
 
     _thread -> priority = ((_control & SCHRX_CREATE_PRIORITY_MASK) >> SCHRX_CREATE_PRIORITY_POS) + 1;
@@ -373,8 +381,8 @@ SchrXStatus schrx_core_unblock_thread(SchrX_Thread *_thread, uint32_t _mask, uin
     if( !(new & SCHRX_PASSIVE_FLAG) && (old & SCHRX_PASSIVE_FLAG))
     {
         schrx_thread_active_judge(_thread);
-        if( _thread -> scheduler -> exec -> priority < _thread -> priority 
-            && _thread -> scheduler == schrx_get_running_scheduler())
+        if( ( !_thread -> scheduler -> exec || _thread -> scheduler -> exec -> priority < _thread -> priority
+            )&& _thread -> scheduler == schrx_get_running_scheduler())
             schrx_switch(); 
     }
 

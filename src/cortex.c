@@ -1,4 +1,3 @@
-#include "platform.h"
 #include "SchedulerX.h"
 
 void schrx_scheduler_attach(void);
@@ -13,9 +12,10 @@ void schrx_scheduler_attach(void);
 /*  Basic runtime variables                     */
 /* -------------------------------------------- */
 
-#ifndef __GNUC__
+#ifdef __GNUC__
     /* Stack for IDLE Task */
-    uint8_t schrx_idle_stack[SCHRX_IDLE_STACK_SIZE];
+    uint8_t schrx_idle_stack_data[SCHRX_IDLE_STACK_SIZE];
+    uint8_t *schrx_idle_stack = schrx_idle_stack_data + ((SCHRX_IDLE_STACK_SIZE - 1) & (-8));
 
     /* Original systick handler (exists when Systick Handler is hooked) */
     void (*schrx_systick_handler_origin)(void);
@@ -23,11 +23,12 @@ void schrx_scheduler_attach(void);
     /* Systick callback for user */
     // extern void SchrX_UserSysTickHandler(void);
 
+    /*
     #ifdef SCHRX_CORTEX_FPU_ENABLE
         void schrx_invoke_no_fpu(void);
         void schrx_invoke_fpu(void);
-        void (*schrx_schedule_invoke)(void) = 0;
     #endif
+    */
 
 #else
     
@@ -41,9 +42,9 @@ void schrx_scheduler_attach(void);
     extern void SchrX_UserSysTickHandler(void);
 
     #ifdef SCHRX_CORTEX_FPU_ENABLE
-        extern void schrx_invoke_no_fpu(void);
-        extern void schrx_invoke_fpu(void);
-        void (*schrx_schedule_invoke)(void) = 0;
+        // extern void schrx_invoke_no_fpu(void);
+        // extern void schrx_invoke_fpu(void);
+        // void (*schrx_schedule_invoke)(void) = 0;
     #endif
     
 #endif
@@ -70,6 +71,64 @@ void schrx_scheduler_attach(void);
             schrx_systick_handler_origin();
     }
 
+    uint8_t schrx_exclusive_and8(volatile uint8_t* _address, uint8_t _mask)
+    {
+        register uint8_t ret;
+        asm volatile(
+            "__schrx_eand8_begin:\n"
+            "\t ldrexb  r2, [%1] \n"
+            "\t and     r1, r2, %2 \n"
+            "\t strexb  r3, r1, [%1] \n"
+            "\t cbz     r3, __schrx_eand8_end \n"
+            "\t b       __schrx_eand8_end \n"
+            "__schrx_eand8_end: \n"
+            "\t mov     %0, r2 \n"
+            : "=r"(ret)
+            : "r"(_address), "r"(_mask)
+            : "r1", "r2", "r3" 
+        );
+        return ret;
+    }
+    
+    uint32_t schrx_exclusive_and32(volatile uint32_t* _address, uint32_t _mask)
+    {
+        register uint32_t ret;
+        asm volatile(
+            "__schrx_eand32_begin:\n"
+            "\t ldrex   r2, [%1] \n"
+            "\t and     r1, r2, %2 \n"
+            "\t strex   r3, r1, [%1] \n"
+            "\t cbz     r3, __schrx_eand32_end \n"
+            "\t b       __schrx_eand32_end \n"
+            "__schrx_eand32_end: \n"
+            "\t mov     %0, r2 \n"
+            : "=r"(ret)
+            : "r"(_address), "r"(_mask)
+            : "r1", "r2", "r3" 
+        );
+        return ret;
+    }
+
+    uint8_t schrx_exclusive_or8(volatile uint8_t* _address, uint8_t _mask)
+    {
+        register uint8_t ret;
+        asm volatile(
+            "__schrx_eor8_begin:\n"
+            "\t ldrexb  r2, [%1] \n"
+            "\t orr     r1, r2, %2 \n"
+            "\t strexb  r3, r1, [%1] \n"
+            "\t cbz     r3, __schrx_eor8_end \n"
+            "\t b       __schrx_eor8_begin \n"
+            "__schrx_eor8_end: \n"
+            "\t mov     %0, r2 \n"
+            : "=r"(ret)
+            : "r"(_address), "r"(_mask)
+            : "r1", "r3" ,"r2"
+        );
+
+        return ret;
+    }
+
     void schrx_exclusive_add_16(volatile int16_t* _address, int16_t _value)
     {
         asm volatile(
@@ -92,8 +151,8 @@ void schrx_scheduler_attach(void);
         asm volatile(
             "__schrx_c32_begin:\n"
             "\t ldrex   r3, [%2]\n"
-            "\t eor     %1, r3\n"
-            "\t cbnz    %1, __schrx_c32_ret\n"
+            "\t teq     %1, r3\n"
+            "\t bne     __schrx_c32_ret\n"
             "\t strex   %1, %3, [%2]\n"
             "\t cbz     %1, __schrx_c32_ret\n"
             "\t mov     %1, r3\n"
@@ -113,9 +172,9 @@ void schrx_scheduler_attach(void);
         asm volatile(
             "__schrx_c8_begin:\n"
             "\t ldrexb  r3, [%0]\n"
-            "\t eor     %1, r3\n"
-            "\t cbnz    %1, __schrx_c8_ret\n"
-            "\t strex   %1, %3, [%0]\n"
+            "\t teq     %1, r3\n"
+            "\t bne     __schrx_c8_ret\n"
+            "\t strexb  %1, %3, [%0]\n"
             "\t cbz     %1, __schrx_c8_ret\n"
             "\t mov     %1, r3\n"
             "\t b       __schrx_c8_begin\n"
@@ -166,75 +225,10 @@ void schrx_scheduler_attach(void);
     }
 
     /*
-        save context with FP Expansion
-    */
-    void __attribute((naked)) schrx_invoke_fpu(void)
-    {
-        asm volatile(
-            "\t vpush   {s16-s31}\n"    // Save FPU Register
-            "\t mrs     r1, psp\n"      // read user stack
-            "\t push    {r1, r4-r11}\n"
-            "\t mov     r2, sp\n"
-            "\t push    {r1-r2}\n"      // irq context structure
-        );
-
-        asm volatile(
-            "\t mov     r1, sp\n"       // call schedule precedure
-            "\t ldr     r0, %0\n"
-            "\t blx     schrx_schedule_routine\n"
-            :
-            : "m"(schrx_schr_instance)
-            : "r0", "r1"
-        );
-
-        asm volatile(
-            "\t pop     {r0-r2}\n"
-            "\t msr     psp, r2\n"
-            "\t pop     {r4-r11}\n"
-            "\t vpop    {s16-s31}\n"
-            "\t pop     {pc}\n"
-        );
-    }
-
-    /*
-        save context with no FP Expansion
-    */
-
-    void __attribute((naked, target("thumb"))) schrx_invoke_no_fpu(void)
-    {
-        asm volatile(
-            "\t mrs     r1, psp\n"          // read user stack
-            "\t push    {r1, r4-r11}\n"
-            "\t mov     r2, sp\n"
-            "\t push    {r1-r2}\n"          // irq context
-        );
-
-        asm volatile( 
-            "\t mov     r1, sp\n"           // call schedule procedure
-            "\t ldr     r0, %0\n"
-            "\t blx     schrx_schedule_routine\n"
-            :
-            : "m"(schrx_schr_instance)
-            : "r0", "r1"
-        );
-
-        asm volatile(
-            "\t pop     {r0-r2}\n"
-            "\t msr     psp, r2\n"
-            "\t pop     {r4-r11}\n"
-            
-            "\t pop 	{pc}\n"
-        );
-    }
-
-    /*
         pendsv handler
     */
     void __attribute__((naked, target("thumb"))) schrx_pendsv_handler(void)
     {
-        asm volatile("\t push {lr}\n");
-        if(system_tick == 16006)
-            system_tick = 0;
         asm volatile(
             "\t cbz     %0, __pendsv_ret\n"
             "\t mov     r1, lr\n"
@@ -244,21 +238,40 @@ void schrx_scheduler_attach(void);
             : "r"(schrx_schr_instance)
             : "r1"
         );
+ 
+        asm volatile (
+            #ifdef SCHRX_CORTEX_FPU_ENABLE
+                "\t vpush   {s16-s31} \n"
+            #endif
+            "\t mov     r0, lr \n"
+            "\t mrs     r1, psp \n"         // Read user stack
+            "\t push    {r0, r1, r4-r11}\n"
+            "\t mov     r2, sp\n"
+            "\t push    {r1-r2}\n"          // irq context
+        );
 
-        #ifndef SCHRX_CORTEX_FPU_ENABLE
-            asm volatile("\t bx  schrx_invoke_no_fpu\n");
-        #else
-            asm volatile(
-                "\t bx  %0\n"
-                :
-                : "r"(schrx_schedule_invoke)
-                :
-            );
-        #endif
+        asm volatile( 
+            "\t mov     r1, sp\n"           // call switch procedure
+            "\t ldr     r0, %0\n"
+            "\t blx     schrx_schedule_routine\n"
+            :
+            : "m"(schrx_schr_instance)
+            : "r0", "r1"
+        );
+
+        asm volatile(
+            "\t pop     {r0-r3}\n"
+            "\t msr     psp, r3\n"
+            "\t pop     {r4-r11}\n"
+            #ifdef SCHRX_CORTEX_FPU_ENABLE
+                "\t vpop    {s16-s31}\n"
+            #endif
+            "\t mov     lr, r2\n"
+        );
 
         asm volatile(
             "__pendsv_ret:\n"
-            "\t pop     {pc}\n"
+            "\t bx      lr\n"
         );
     }
 
@@ -277,7 +290,7 @@ void schrx_scheduler_attach(void);
             "\t orr     r1, #0x2\n"
             "\t msr     CONTROL, r1\n"
             :
-            : "r"(schrx_idle_stack + SCHRX_IDLE_STACK_SIZE - 1)
+            : "r"(schrx_idle_stack)
             : "r1"
         );
 
@@ -327,31 +340,47 @@ void schrx_reset_system_tick(void)
 void schrx_systick_handler(void)
 {
     system_tick++;
+    if(schrx_schr_instance)
+        schrx_tick_routine(schrx_schr_instance, system_tick);
+
     SchrX_UserSysTickHandler();
     schrx_switch();
 }
 
+/*
+void __attribute((naked)) schrx_systick_handler(void)
+{
+    asm volatile(
+        "\t push {lr}\n"
+        "\t blx schrx_systick_handler_entity\n"
+        "\t pop {pc} \n"
+    );
+}
+*/
+
 
 void schrx_context_switch_irq(SchrX_Context *_save , SchrX_Context *_new, SchrX_IRQContext *_irq_context)
 {
-    #define FPU_ENABLED     (schrx_schedule_invoke == schrx_invoke_fpu)
     #define CORTEX_REALIGNMENT  (1u << 9)
-
-	uint32_t ctx_size;
+    #define RET_VTOR_FP_INACTIVE  (0x10)
+    uint32_t ctx_size;
 
     #ifdef SCHRX_CORTEX_FPU_ENABLE
-    uint8_t i;
-    
-        if(FPU_ENABLED)
-            ctx_size = CORTEX_IRQ_STORE_REGS_SIZE;
-        else
-            ctx_size = CORTEX_IRQ_STORE_REGS_SIZE_NO_FPU;
-    #else
-        ctx_size = CORTEX_IRQ_STORE_REGS_SIZE;
+        uint8_t fpu_inactive, i;
     #endif
-    
+
     if( _save ) //Not a IDLE Task
     {
+        #ifdef SCHRX_CORTEX_FPU_ENABLE
+            fpu_inactive = _irq_context -> stored_extra -> irq_exc_ret & 0x10;
+            if(fpu_inactive)
+                ctx_size = CORTEX_IRQ_STORE_REGS_SIZE_NO_FPU;
+            else
+                ctx_size = CORTEX_IRQ_STORE_REGS_SIZE;
+        #else
+            ctx_size = CORTEX_IRQ_STORE_REGS_SIZE;
+        #endif
+
         /* store context */
         _save -> R[0] = _irq_context -> stored -> R0;
         _save -> R[1] = _irq_context -> stored -> R1;
@@ -372,27 +401,34 @@ void schrx_context_switch_irq(SchrX_Context *_save , SchrX_Context *_new, SchrX_
         _save -> SP = _irq_context -> stored_extra -> SP + ctx_size;
 
         #ifdef SCHRX_CORTEX_FPU_ENABLE
-            if(FPU_ENABLED)
+            // check whether FP expansion is active.
+            if(!fpu_inactive)
             {
+                _save -> flags |= ARM_CTX_FP_ACTIVE;
+
                 for(i = 0 ; i < 16; i++)
                 {
                     // Save FPU S0-S15
-                    _save -> S[i] = _irq_context -> stored -> S[i]; 
+                    _save -> S[i] = _irq_context -> stored -> ext.S[i]; 
                     // Save FPU S16-S30
-                    _save -> S[i + 16] = _irq_context -> stored_extra -> S_16[i]; 
+                    _save -> S[i + 16] = _irq_context -> stored_extra -> S_16[i];
                 }
                 // Save FPSCR
-                _save -> FPSCR = _irq_context -> stored -> FPSCR;
+                _save -> FPSCR = _irq_context -> stored -> ext.FPSCR;
 
-                _save -> Reserved[0] = _irq_context -> stored -> Reserved[0];
+                _save -> Reserved[0] = _irq_context -> stored -> ext.Reserved[0];
                 if(_save -> xPSR & CORTEX_REALIGNMENT) // Stack is realigned to 8-Byte.
-                    _save -> Reserved[1] = _irq_context -> stored -> Reserved[1];
+                    _save -> Reserved[1] = _irq_context -> stored -> ext.Reserved[1];
                 else
                     _save -> SP -= 4;
+
             }
             else
+            {
+                _save -> flags &= ~ARM_CTX_FP_ACTIVE;
                 if(!(_save -> xPSR & CORTEX_REALIGNMENT))
                     _save -> SP -= 4;
+            }
         #else
             if(!(_save -> xPSR & CORTEX_REALIGNMENT))
                 _save -> SP -= 4;
@@ -410,10 +446,20 @@ void schrx_context_switch_irq(SchrX_Context *_save , SchrX_Context *_new, SchrX_
         _irq_context -> stored_extra -> R9 = _new -> R[9];
         _irq_context -> stored_extra -> R10 = _new -> R[10];
         _irq_context -> stored_extra -> R11 = _new -> R[11];
-        _irq_context -> stored_extra -> SP = _new -> SP - ctx_size;
+
+        #ifdef SCHRX_CORTEX_FPU_ENABLE
+            if( _new -> flags & ARM_CTX_FP_ACTIVE )
+                _irq_context -> stored_extra -> SP = _new -> SP - CORTEX_IRQ_STORE_REGS_SIZE;
+            else
+                _irq_context -> stored_extra -> SP = _new -> SP - CORTEX_IRQ_STORE_REGS_SIZE_NO_FPU;
+        #else
+            _irq_context -> stored_extra -> SP = _new -> SP - CORTEX_IRQ_STORE_REGS_SIZE;
+        #endif
+
         if(!(_new -> xPSR & CORTEX_REALIGNMENT)) //SP hadn't ever been realigned to 8-Byte.
             _irq_context -> stored_extra -> SP += 4;
         _irq_context -> stored = (SchrX_IRQStoredRegs*) _irq_context -> stored_extra -> SP ;
+
         _irq_context -> stored -> R0 = _new -> R[0];
         _irq_context -> stored -> R1 = _new -> R[1];
         _irq_context -> stored -> R2 = _new -> R[2];
@@ -424,21 +470,44 @@ void schrx_context_switch_irq(SchrX_Context *_save , SchrX_Context *_new, SchrX_
         _irq_context -> stored -> xPSR = _new -> xPSR;
 
         #ifdef SCHRX_CORTEX_FPU_ENABLE
-            if(FPU_ENABLED)
+            if( _new -> flags & ARM_CTX_FP_ACTIVE )
             {
+                _irq_context -> stored_extra -> irq_exc_ret &= ~RET_VTOR_FP_INACTIVE;
+
                 for(i = 0 ; i < 16 ; i++)
                 {
                     // Restore FPU S0-S15
-                    _irq_context -> stored -> S[i] = _new -> S[i];
+                    _irq_context -> stored -> ext.S[i] = _new -> S[i];
                     _irq_context -> stored_extra -> S_16[i] = _new -> S[i + 16];
                 }
-                _irq_context -> stored -> FPSCR = _new -> FPSCR;
+                _irq_context -> stored -> ext.FPSCR = _new -> FPSCR;
+                _irq_context -> stored -> ext.Reserved[0] = _new -> Reserved[0];
+
+                if( _new -> xPSR & CORTEX_REALIGNMENT) //SP had ever been realigned to 8-Byte.
+                    _irq_context -> stored -> ext.Reserved[1] = _new -> Reserved[1];
+
             }
+            else
+            {
+                _irq_context -> stored_extra -> irq_exc_ret |= RET_VTOR_FP_INACTIVE;
+
+                if( _new -> xPSR & CORTEX_REALIGNMENT)
+            		_irq_context -> stored -> Reserved[0] = _new -> Reserved[0];
+            }
+        #else
+            if( _new -> xPSR & CORTEX_REALIGNMENT)
+                _irq_context -> stored -> Reserved[0] = _new -> Reserved[0];
         #endif
     }
     else /* IDLE */
     {
-        _irq_context -> stored_extra -> SP = (uint32_t) schrx_idle_stack - ctx_size + 4;
+        #ifdef SCHRX_CORTEX_FPU_ENABLE
+            _irq_context -> stored_extra -> SP = (uint32_t) schrx_idle_stack - CORTEX_IRQ_STORE_REGS_SIZE_NO_FPU;
+            _irq_context -> stored_extra -> irq_exc_ret |= RET_VTOR_FP_INACTIVE;
+        #else
+            _irq_context -> stored_extra -> SP = (uint32_t) schrx_idle_stack - CORTEX_IRQ_STORE_REGS_SIZE;
+        #endif
+
         /*
             IDLE Stored register restore.
             IDLE Task is dummy task. it don't care the values of Rx registers.
@@ -446,26 +515,13 @@ void schrx_context_switch_irq(SchrX_Context *_save , SchrX_Context *_new, SchrX_
         _irq_context -> stored = (SchrX_IRQStoredRegs*) _irq_context -> stored_extra -> SP;
         _irq_context -> stored -> LR = 0;
         _irq_context -> stored -> xPSR = 0x01000000;
-        
         _irq_context -> stored -> PC = (uint32_t)&schrx_do_idle;
     }
 
     #undef CORTEX_REALIGNMENT
-    #undef FPU_ENABLED
+    #undef RET_VTOR_FP_INACTIVE
 }
 
-#ifdef SCHRX_CORTEX_FPU_ENABLE
-
-    void schrx_cortex_reload_invoke_precedure()
-    {
-        // Check whether FPU is ENABLED.
-        if(SCB -> CPACR & ((3UL << 10*2)|(3UL << 11*2)) )
-            schrx_schedule_invoke = schrx_invoke_fpu;
-        else
-            schrx_schedule_invoke = schrx_invoke_no_fpu;
-    }
-
-#endif
 
 void schrx_scheduler_attach(void)
 {
@@ -473,6 +529,7 @@ void schrx_scheduler_attach(void)
     {
         uint32_t irq_vector;
         uint32_t time_slice;
+        uint64_t tick_count_1s;
     }v1;
 
 
@@ -497,17 +554,26 @@ void schrx_scheduler_attach(void)
     
         */
 
+    /*
     #ifdef SCHRX_CORTEX_FPU_ENABLE
-        schrx_cortex_reload_invoke_precedure();
+         schrx_cortex_reload_invoke_precedure();;
     #endif
+    */
 
     //configure system tick
-    v1.time_slice = SysTick -> CALIB;
-    v1.time_slice &= SysTick_CALIB_TENMS_Msk;
-    if(!v1.time_slice) // no calibation
-        SysTick -> LOAD = 0x00005000;
+    
+    v1.tick_count_1s = schrx_cortex_calc_tick_count_1s();
+    if(!v1.tick_count_1s)
+    {
+        v1.time_slice = SysTick -> CALIB;
+        v1.time_slice = (v1.time_slice & SysTick_CALIB_TENMS_Msk) >>  SysTick_CALIB_TENMS_Pos;
+        if(!v1.time_slice) // no calibation
+            SysTick -> LOAD = 0x00005000;   // default
+        else
+            SysTick -> LOAD = v1.time_slice; // default
+    }
     else
-        SysTick -> LOAD = v1.time_slice; // 1ms
+        SysTick -> LOAD = v1.time_slice / 1000; // 1ms;
     
     //NVIC_SetPriority(SysTick_IRQn, 0);
     NVIC_SetPriority(PendSV_IRQn, 0xFFFFFFFF);
@@ -523,10 +589,11 @@ void schrx_context_init(SchrX_Context *_context, void* _entry, void* _stack)
     for(i = 0 ; i < 12 ; i++)
         _context -> R[i] = 0;
     
-    _context -> SP = (uint32_t)_stack & (~0x7u); //Align to 8-byte border.
+    _context -> SP = (uint32_t)_stack & (-8); //Align to 8-byte border.
     _context -> LR = 0;
     _context -> PC = (uint32_t)_entry;
     _context -> xPSR = 0x01000000;
+    _context -> flags = 0;
 
     #ifdef SCHRX_CORTEX_FPU_ENABLE
         for(i = 0 ; i < 32 ; i++)

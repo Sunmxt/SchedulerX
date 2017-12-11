@@ -9,11 +9,16 @@
 #ifndef SCHEDULERX
 #define SCHEDULERX
 
+#ifdef SCHEDULERX_TIME
+	#ifndef SCHEDULERX_SEMAPHORE
+		#define SCHEDULERX_SEMAPHORE
+	#endif
+#endif
 
+#include <stddef.h>
 #include "klist.h"
 #include "platform.h"
 
-typedef uint32_t size_t;
 typedef unsigned char Byte;
 
 /* Commom */
@@ -57,10 +62,10 @@ typedef struct _SchedulerX_Thread
     #define SCHRX_PASSIVE_FLAG          0x80008000
 
     uint8_t priority;
-    #define SCHRX_PRIORITY_REALTIME     4
-    #define SCHRX_PRIORITY_HIGH         3
-    #define SCHRX_PRIORITY_MEDIUM       2
-    #define SCHRX_PRIORITY_LOW          1
+    #define ___SCHRX_PIROR_REALRIME     4
+    #define ___SCHRX_PIROR_HIGH         3
+    #define ___SCHRX_PIROR_MEDIUM       2
+    #define ___SCHRX_PIROR_LOW          1
 
     for_list_node node;
     for_list_node op_node;
@@ -69,6 +74,17 @@ typedef struct _SchedulerX_Thread
 
 /* Thread Process Entry */
 typedef SchrXExitCode (*SchrX_ThreadEntry)(void* _params);
+
+
+
+#ifdef SCHEDULERX_SEMAPHORE
+    #include "semaphore.h"
+#endif
+
+#ifdef SCHEDULERX_TIME
+    #include "time.h"
+#endif
+
 
 
 /* Scheduler */
@@ -83,6 +99,15 @@ typedef struct _SchedulerX_Instance
 
     SchrX_Thread *exec;
     
+	#ifdef SCHEDULERX_TIME
+        struct {
+            SchrX_TimeTriggerManager manager;
+            SchrX_Timer *triggered;
+            SchrX_Semaphore lock;
+            SchrX_Semaphore sem_block;
+        }timer;
+    #endif
+
     struct {
         struct {
             for_list_node head;
@@ -107,6 +132,8 @@ typedef struct _SchedulerX_Instance
         for_list_node blocked;
     }loop;
 
+
+
 }SchedulerX;
 
 /* Create a scheduler */
@@ -129,13 +156,13 @@ SchrXStatus SchrX_Run(SchedulerX *_scheduler);
 SchrXStatus SchrX_CreateThread(SchedulerX *_scheduler ,SchrX_Thread *_thread
             , SchrX_ThreadEntry _entry, void* _user_param, void* _stack, size_t _stack_size, Byte _control);
 
-    #define SCHRX_CREATE_SUSPEND                0x01
-    #define SCHRX_CREATE_PRIORITY_POS           1
-    #define SCHRX_CREATE_PRIORITY_MASK          (3UL << SCHRX_CREATE_PRIORITY_POS)
-    #define SCHRX_CREATE_LOW_PRIORITT           (0x00 << SCHRX_CREATE_PRIORITY_POS)
-    #define SCHRX_CREATE_MEDIUM_PRIORITY        (0x01 << SCHRX_CREATE_PRIORITY_POS)
-    #define SCHRX_CREATE_HIGH_PRIORITY          (0x02 << SCHRX_CREATE_PRIORITY_POS)
-    #define SCHRX_CREATE_REAL_TIME_PRIOTITY     (0x03 << SCHRX_CREATE_PRIORITY_POS)
+    #define SCHRX_SUSPEND                0x01
+    #define SCHRX_CREATE_PRIORITY_POS    1
+    #define SCHRX_CREATE_PRIORITY_MASK   (3UL << SCHRX_CREATE_PRIORITY_POS)
+    #define SCHRX_LOW_PRIORITY           (0x00 << SCHRX_CREATE_PRIORITY_POS)
+    #define SCHRX_MEDIUM_PRIORITY        (0x01 << SCHRX_CREATE_PRIORITY_POS)
+    #define SCHRX_HIGH_PRIORITY          (0x02 << SCHRX_CREATE_PRIORITY_POS)
+    #define SCHRX_REALTIME_PRIORITY      (0x03 << SCHRX_CREATE_PRIORITY_POS)
 
 /*
     Suspend/Resume a thread
@@ -170,5 +197,6 @@ SchrX_Thread* SchrX_GetCurrentThread(void);
 */
 void schrx_schedule_suspend(SchedulerX *_scheduler);
 void schrx_schedule_resume(SchedulerX *_scheduler);
+
 
 #endif
