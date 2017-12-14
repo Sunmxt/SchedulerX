@@ -15,7 +15,7 @@ void schrx_schedule_resume(SchedulerX *_scheduler)
     }
 }
 
-SchrX_Thread* schrx_pop_front_thread(SchedulerX *_scheduler)
+SchrX_Thread* schrx_pop_front_thread(SchedulerX *_scheduler, uint8_t _priority)
 {
     SchrX_Thread *thread;
     for_list_node *head, *tail;
@@ -46,7 +46,7 @@ SchrX_Thread* schrx_pop_front_thread(SchedulerX *_scheduler)
     if(head)
     {
         thread = S_LIST_TO_DATA(head -> next, SchrX_Thread, wait_node);
-        if( !_scheduler -> exec || thread -> priority >= _scheduler -> exec -> priority )
+        if( !_scheduler -> exec || thread -> priority >= _priority )
         {
             if(head -> next == tail -> next)
                 head -> next = tail -> next = 0;
@@ -215,6 +215,7 @@ void schrx_scheduler_modify(SchedulerX *_scheduler)
 
 void schrx_schedule_routine(void *_scheduler, SchrX_IRQContext *_irq_context)
 {
+	uint8_t target_prior;
     SchedulerX *schr;
     SchrX_Thread *target;
     SchrX_Context *ctx_cur, *ctx_target;
@@ -229,20 +230,22 @@ void schrx_schedule_routine(void *_scheduler, SchrX_IRQContext *_irq_context)
     schrx_scheduler_modify(schr);
 
     ctx_cur = ctx_target = 0;
-    if(schr -> exec && (schr -> exec -> state & SCHRX_TERMINATED_MASK))
+    if(schr -> exec)
     {
-        schr -> exec = 0;
-        target = schrx_pop_front_thread(schr);
+    	if(schr -> exec -> state & SCHRX_TERMINATED_MASK)
+    	{
+    		schr -> exec = 0;
+    		target_prior = ___SCHRX_PIROR_LOW;
+    	}
+    	if(schr -> exec -> state & SCHRX_BLOCKED_MASK )
+            target_prior = ___SCHRX_PIROR_LOW;
+    	else
+    		target_prior = schr -> exec -> priority;
     }
     else
-    {    
-        target = schrx_pop_front_thread(schr);
-        if(target && (target -> state & SCHRX_BLOCKED_MASK))
-            target = 0;
-        if(target == schr -> exec)
-           return;
-    }
+    	target_prior = ___SCHRX_PIROR_LOW;
 
+    target = schrx_pop_front_thread(schr, target_prior);
     if(target)
     {
         target -> state |= SCHRX_RUNNING_MASK;

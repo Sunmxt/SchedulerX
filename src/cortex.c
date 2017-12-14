@@ -327,7 +327,6 @@ void* schrx_get_running_scheduler(void)
 
 void schrx_switch(void)
 {
-    SysTick -> VAL = 0;
     SCB -> ICSR = SCB_ICSR_PENDSVSET_Msk;
 }
 
